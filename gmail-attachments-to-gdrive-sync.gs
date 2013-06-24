@@ -24,7 +24,6 @@
  *
  */
 
-// Class templates and globals
 var kGmailAttachmentFolder = "GmailAttachments";
 
 function MyLogger() {
@@ -86,6 +85,7 @@ var kLastSynced = "l";
 var kFilesAddedToday = "fa";
 var kUsersCount = "ku";
 var kMaxFilesAddPerDay = 240;
+
 var kOneMinute = 60000;
 var kThirtyDays = 2592000000;
 var kOneYear = 31622400000;
@@ -100,7 +100,7 @@ function deleteAllTriggers() {
 function processInput(form) {
   var lock = LockService.getPublicLock();
   try {
-    lock.waitLock(10 * kOneMinute);
+    lock.waitLock(10000);
     var count = parseInt(ScriptProperties.getProperty(kUsersCount));
     ++count;
     ScriptProperties.setProperty(kUsersCount, count.toString());
@@ -108,7 +108,7 @@ function processInput(form) {
   } catch (e) {
     // Its ok, could not add this user.
   }
-  // If the user is trying to re-run the script. Flush out all past data,
+  // The user is trying to re-run the script. Flush out all past data,
   // the files in 'GmailAttachments' will not be affected.
   UserProperties.deleteAllProperties();
   deleteAllTriggers();
@@ -169,8 +169,12 @@ function syncUserDrives(e) {
     added = 0;
   }
   var fullSynced = false;
+  var should_break = false;
   try {
-    while (HasTime(today) && added < kMaxFilesAddPerDay && !fullSynced) {
+    while (HasTime(today) &&
+           added < kMaxFilesAddPerDay &&
+           !fullSynced &&
+           !should_break) {
       var maxToAdd = kMaxFilesAddPerDay - added;
       var searchQuery = getSearchQuery(user);
       kGlobalLogger.log("Query : " + searchQuery['query']
@@ -178,25 +182,30 @@ function syncUserDrives(e) {
       var threads = GmailApp.search(searchQuery['query']);
       if (threads.length > 0) {
         var filesAdded = updateDrive(threads, user, maxToAdd);
+        if (filesAdded['has_error'] == true) {
+          // We got some error, should backoff and come back after some time
+          should_break = true;
+        }
         added += filesAdded.size();
       }
       fullSynced = (searchQuery['isToday'] == "true");
       if (added < kMaxFilesAddPerDay && !fullSynced) {
         user.lastSynced = new Date(
-          Date.parse(user.lastSynced) + kThirtyDays).toJSON();
+            Date.parse(user.lastSynced) + kThirtyDays).toJSON();
       }
       if (fullSynced) {
         user.lastSynced = new Date().toJSON();
       }
     }
   } catch (e) {
+    should_break = true;
     kGlobalLogger.log("Some error in execution: " + e );
   }
   UserProperties.setProperty(kLastSynced, user.lastSynced);
   UserProperties.setProperty(kFilesAddedToday, Utilities.jsonStringify(
       {'added' : added, 'date' : today.toJSON()}));
-  var nextTrigger = 900000;  // 15 mins.
-  if (fullSynced || added < kMaxFilesAddPerDay) {
+  var nextTrigger = 1200000;  // 20 mins.
+  if (!should_break && fullSynced) {
     nextTrigger = 7 * 60 * 1000; // If fully synced, we can afford to come back faster.
   }
   ScriptApp.newTrigger("syncUserDrives").timeBased().after(nextTrigger).create();
@@ -329,6 +338,7 @@ function updateDrive(gmailThreads, userData, maxToAdd) {
   // map<NewAddedFileName, Folder*>
   var addedFiles = new BucketsLib.buckets.Dictionary();
   var addMore = (maxToAdd > 0);
+  var has_error = false;
   for (var i = 0; (i < gmailThreads.length) && addMore; ++i) {
     var thread = gmailThreads[i];
     var messages = thread.getMessages();
@@ -357,7 +367,7 @@ function updateDrive(gmailThreads, userData, maxToAdd) {
                                                       kGmailAttachmentFolder);
           }
           try {
-            var iter = folderForFile. getFilesByName(fileName);
+            var iter = folderForFile.getFilesByName(fileName);
             // duplicate.
             if (iter != null && iter.hasNext()) {
               continue;
@@ -372,14 +382,14 @@ function updateDrive(gmailThreads, userData, maxToAdd) {
             if (addedFiles.size() == maxToAdd) addMore = false;
           } catch (e) {
             kGlobalLogger.errorLog("Some problem with an attachment : " + e);
+            has_error = true;
             Utilities.sleep(1000);
           }
         } else {
-          kGlobalLogger.log("Rejected file of type: " + contentType);
+          kGlobalLogger.errorLog("Rejected file of type: " + contentType);
         }
       }
     }
   }
-  return addedFiles;
+  return { 'addedFiles' : addedFiles, 'has_error' : has_error };
 }
-
