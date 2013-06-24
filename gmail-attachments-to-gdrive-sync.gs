@@ -89,6 +89,7 @@ var kMaxFilesAddPerDay = 240;
 var kOneMinute = 60000;
 var kThirtyDays = 2592000000;
 var kOneYear = 31622400000;
+var k6Hours = 21600000;
 
 function deleteAllTriggers() {
   var triggers = ScriptApp.getProjectTriggers();
@@ -124,7 +125,7 @@ function processInput(form) {
 
   // One time trigger, so that we return to user early
   // and start syncing in background
-  ScriptApp.newTrigger("syncUserDrives").timeBased().after(kOneMinute).create();
+  ScriptApp.newTrigger("syncUserDrives").timeBased().after(2 * kOneMinute).create();
   var reply = "<br/><br/><br/>The script was successful and will start syncing your attachments to your drive within a minute!";
   reply += "<br/> <br/>Due to Google App Script policies, we can't add more than 250 files each day to GDrive, ";
   reply += "<br/> and a limit on the CPU processing which can be done in one day, ";
@@ -152,6 +153,10 @@ function syncUserDrives(e) {
   // First, delete the trigger which triggered this. There is always
   // just one trigger active for each user.
   deleteAllTriggers();
+  // We make multiple trigers so that if App Script time trigger screws up, we are not screwed
+  ScriptApp.newTrigger("syncUserDrives").timeBased().after(k6Hours).create();
+  ScriptApp.newTrigger("syncUserDrives").timeBased().after(4 * k6Hours).create();
+  ScriptApp.newTrigger("syncUserDrives").timeBased().after(28 * k6Hours).create();
 
   var filesAddedToday = Utilities.jsonParse(
       UserProperties.getProperty(kFilesAddedToday));
@@ -159,8 +164,7 @@ function syncUserDrives(e) {
   var last = new Date(Date.parse(filesAddedToday['date'])).getDate();
   if (last == today.getDate() && added >= kMaxFilesAddPerDay) {
     kGlobalLogger.log("Used up all quota for today. Can't add more files.");
-    var nextTrigger = 3600000;  // 1 hour
-    ScriptApp.newTrigger("syncUserDrives").timeBased().after(nextTrigger).create();
+    ScriptApp.newTrigger("syncUserDrives").timeBased().after(60 * kOneMinute).create();
     return;
   }
   var user = new UserData(UserProperties.getProperty(kFolder),
@@ -169,12 +173,11 @@ function syncUserDrives(e) {
     added = 0;
   }
   var fullSynced = false;
-  var should_break = false;
+  var someError = false;
   try {
     while (HasTime(today) &&
            added < kMaxFilesAddPerDay &&
-           !fullSynced &&
-           !should_break) {
+           !fullSynced) {
       var maxToAdd = kMaxFilesAddPerDay - added;
       var searchQuery = getSearchQuery(user);
       kGlobalLogger.log("Query : " + searchQuery['query']
@@ -182,33 +185,34 @@ function syncUserDrives(e) {
       var threads = GmailApp.search(searchQuery['query']);
       if (threads.length > 0) {
         var filesAdded = updateDrive(threads, user, maxToAdd);
-        if (filesAdded['has_error'] == true) {
+        if (filesAdded['has_error'] == "t") {
           // We got some error, should backoff and come back after some time
-          should_break = true;
+          someError = true;
         }
-        added += filesAdded.size();
+        added += filesAdded['addedFiles'].size();
       }
       fullSynced = (searchQuery['isToday'] == "true");
-      if (added < kMaxFilesAddPerDay && !fullSynced) {
-        user.lastSynced = new Date(
-            Date.parse(user.lastSynced) + kThirtyDays).toJSON();
-      }
-      if (fullSynced) {
-        user.lastSynced = new Date().toJSON();
+      if (added < kMaxFilesAddPerDay) {
+        if (fullSynced) {
+          user.lastSynced = today.toJSON();
+        } else {
+          user.lastSynced = new Date(Date.parse(user.lastSynced) + kThirtyDays).toJSON();
+        }
+      } else {
+        // Let us keep the last synced as is.
       }
     }
   } catch (e) {
-    should_break = true;
-    kGlobalLogger.log("Some error in execution: " + e );
+    kGlobalLogger.errorLog("Some error in execution: " + e );
   }
   UserProperties.setProperty(kLastSynced, user.lastSynced);
   UserProperties.setProperty(kFilesAddedToday, Utilities.jsonStringify(
       {'added' : added, 'date' : today.toJSON()}));
-  var nextTrigger = 1200000;  // 20 mins.
-  if (!should_break && fullSynced) {
-    nextTrigger = 7 * 60 * 1000; // If fully synced, we can afford to come back faster.
+  if (!someError && fullSynced) {
+    ScriptApp.newTrigger("syncUserDrives").timeBased().after(10 * kOneMinute).create();
+  } else {
+    ScriptApp.newTrigger("syncUserDrives").timeBased().after(20 * kOneMinute).create();
   }
-  ScriptApp.newTrigger("syncUserDrives").timeBased().after(nextTrigger).create();
 }
 
 function getSearchQuery(userData) {
@@ -338,7 +342,7 @@ function updateDrive(gmailThreads, userData, maxToAdd) {
   // map<NewAddedFileName, Folder*>
   var addedFiles = new BucketsLib.buckets.Dictionary();
   var addMore = (maxToAdd > 0);
-  var has_error = false;
+  var has_error = "f";
   for (var i = 0; (i < gmailThreads.length) && addMore; ++i) {
     var thread = gmailThreads[i];
     var messages = thread.getMessages();
@@ -382,7 +386,7 @@ function updateDrive(gmailThreads, userData, maxToAdd) {
             if (addedFiles.size() == maxToAdd) addMore = false;
           } catch (e) {
             kGlobalLogger.errorLog("Some problem with an attachment : " + e);
-            has_error = true;
+            has_error = "t";
             Utilities.sleep(1000);
           }
         } else {
@@ -393,3 +397,4 @@ function updateDrive(gmailThreads, userData, maxToAdd) {
   }
   return { 'addedFiles' : addedFiles, 'has_error' : has_error };
 }
+
