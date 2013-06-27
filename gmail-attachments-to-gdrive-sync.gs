@@ -87,6 +87,7 @@ var kUsersCount = "ku";
 var kMaxFilesAddPerDay = 240;
 
 var kOneMinute = 60000;
+var kOneDay = 86400000;
 var kThirtyDays = 2592000000;
 var kOneYear = 31622400000;
 var k6Hours = 21600000;
@@ -155,7 +156,9 @@ function syncUserDrives(e) {
   deleteAllTriggers();
   // We make multiple trigers so that if App Script time trigger screws up, we are not screwed
   ScriptApp.newTrigger("syncUserDrives").timeBased().after(k6Hours).create();
+  ScriptApp.newTrigger("syncUserDrives").timeBased().after(2 * k6Hours).create();
   ScriptApp.newTrigger("syncUserDrives").timeBased().after(4 * k6Hours).create();
+  ScriptApp.newTrigger("syncUserDrives").timeBased().after(8 * k6Hours).create();
   ScriptApp.newTrigger("syncUserDrives").timeBased().after(28 * k6Hours).create();
 
   var filesAddedToday = Utilities.jsonParse(
@@ -209,7 +212,7 @@ function syncUserDrives(e) {
   UserProperties.setProperty(kFilesAddedToday, Utilities.jsonStringify(
       {'added' : added, 'date' : today.toJSON()}));
   if (!someError && fullSynced) {
-    ScriptApp.newTrigger("syncUserDrives").timeBased().after(10 * kOneMinute).create();
+    ScriptApp.newTrigger("syncUserDrives").timeBased().after(12 * kOneMinute).create();
   } else {
     ScriptApp.newTrigger("syncUserDrives").timeBased().after(20 * kOneMinute).create();
   }
@@ -232,7 +235,10 @@ function getSearchQuery(userData) {
   var beforeQ = "" + beforeDate.getFullYear() + "/" + b_tmp + "/" + beforeDate.getDate() + " ";
   var afterQ  = "" + afterDate.getFullYear() +  "/" + a_tmp + "/" + afterDate.getDate()  + " ";
   if (beforeQ == afterQ) {
-    query = "after:" + afterQ;
+    var yester = new Date(Date.parse(userData.lastSynced) - kOneDay);
+    a_tmp = yester.getMonth() + 1;
+    afterQ  = "" + yester.getFullYear() +  "/" + a_tmp + "/" + yester.getDate()  + " ";
+    query = query + "  " + "after:" + afterQ;
   } else {
     query = query + "before:" + beforeQ + "  " + "after:" + afterQ;
   }
