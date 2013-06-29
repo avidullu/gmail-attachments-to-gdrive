@@ -51,6 +51,7 @@ function getAllowedContentTypes() {
   allowedContentTypes.add("image/jpeg");
   allowedContentTypes.add("image/gif");
   allowedContentTypes.add("image/tiff");
+  allowedContentTypes.add("image/svg+xml");
   // Application
   allowedContentTypes.add("application/pdf");
   allowedContentTypes.add("application/javascript");
@@ -58,14 +59,32 @@ function getAllowedContentTypes() {
   allowedContentTypes.add("application/xml");
   allowedContentTypes.add("application/zip");
   allowedContentTypes.add("application/msword");
+  allowedContentTypes.add("application/vnd.ms-powerpoint");
+  allowedContentTypes.add("application/x-shockwave-flash");
+  allowedContentTypes.add("application/vnd.ms-project");
+  allowedContentTypes.add("application/vnd.ms-works");
+  allowedContentTypes.add("application/vnd.ms-outlook");
+  allowedContentTypes.add("application/vnd.ms-excel");
+  allowedContentTypes.add("application/postscript");
+  allowedContentTypes.add("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  allowedContentTypes.add("application/vnd.openxmlformats-officedocument.presentationml.presentation");
+  allowedContentTypes.add("application/vnd.mozilla.xul+xml");
+  allowedContentTypes.add("application/vnd.oasis.opendocument.spreadsheet");
+  allowedContentTypes.add("application/vnd.oasis.opendocument.presentation");
+  allowedContentTypes.add("application/vnd.oasis.opendocument.text");
+  
   // Audio
   allowedContentTypes.add("audio/mpeg");
   allowedContentTypes.add("audio/mp4");
+  allowedContentTypes.add("audio/mid");
+  
   // Video
   allowedContentTypes.add("video/mpeg");
   allowedContentTypes.add("video/mp4");
   allowedContentTypes.add("video/x-flv");
   allowedContentTypes.add("video/x-ms-wmv");
+  allowedContentTypes.add("video/x-msvideo");
+  allowedContentTypes.add("video/quicktime");
 
   kGlobalLogger.log("Total allowed content types are "
                     + allowedContentTypes.size());
@@ -227,7 +246,8 @@ function getSearchQuery(userData) {
     isToday = "true";
     nextDate = today;
   }
-  var afterDate = new Date(Date.parse(userData.lastSynced));
+  nextDate += kOneDay;
+  var afterDate = new Date(Date.parse(userData.lastSynced) - kOneDay);
   var beforeDate = new Date(nextDate);
   // JS returns 0..11, Gmail uses 1..12
   var b_tmp = beforeDate.getMonth() + 1;
