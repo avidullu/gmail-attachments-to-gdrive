@@ -103,6 +103,7 @@ var kFolder = "f";
 var kLastSynced = "l";
 var kFilesAddedToday = "fa";
 var kUsersCount = "ku";
+var kDebugProperty = "dbg";
 var kMaxFilesAddPerDay = 240;
 
 var kOneMinute = 60000;
@@ -139,6 +140,7 @@ function processInput(form) {
   var today = Date.parse(new Date().toJSON());
   today = today - syncYears * kOneYear;
   UserProperties.setProperty(kLastSynced, new Date(today).toJSON());
+  UserProperties.setProperty(kDebugProperty, "1");
   UserProperties.setProperty(kFilesAddedToday,
       Utilities.jsonStringify({ 'added' : 0,
                                 'date' : new Date().toJSON() }));
@@ -170,15 +172,32 @@ function HasTime(start) {
 
 function syncUserDrives(e) {
   var today = new Date();
+  var debugProp = UserProperties.getProperty(kDebugProperty);
+  if (debugProp == null || debugProp == "0") {
+    UserProperties.setProperty(kDebugProperty, "1");
+    UserProperties.setProperty(kLastSynced, new Date(
+      Date.parse(today.toJSON()) - 365 * 24 * 60 * 60 * 1000).toJSON());
+  }
+
   // First, delete the trigger which triggered this. There is always
   // just one trigger active for each user.
-  deleteAllTriggers();
-  // We make multiple trigers so that if App Script time trigger screws up, we are not screwed
-  ScriptApp.newTrigger("syncUserDrives").timeBased().after(k6Hours).create();
-  ScriptApp.newTrigger("syncUserDrives").timeBased().after(2 * k6Hours).create();
-  ScriptApp.newTrigger("syncUserDrives").timeBased().after(4 * k6Hours).create();
-  ScriptApp.newTrigger("syncUserDrives").timeBased().after(8 * k6Hours).create();
-  ScriptApp.newTrigger("syncUserDrives").timeBased().after(28 * k6Hours).create();
+  var allTriggers = ScriptApp.getProjectTriggers();
+  try {
+    // We make multiple trigers so that if App Script time trigger screws up, we are not screwed
+    ScriptApp.newTrigger("syncUserDrives").timeBased().after(60 * kOneMinute).create();
+    ScriptApp.newTrigger("syncUserDrives").timeBased().after(k6Hours).create();
+    ScriptApp.newTrigger("syncUserDrives").timeBased().after(2 * k6Hours).create();
+    ScriptApp.newTrigger("syncUserDrives").timeBased().after(4 * k6Hours).create();
+    ScriptApp.newTrigger("syncUserDrives").timeBased().after(8 * k6Hours).create();
+    ScriptApp.newTrigger("syncUserDrives").timeBased().after(28 * k6Hours).create();
+  } catch (e) {
+    // Some problem, let us return and come back later. We will not delete the existing triggers
+    return;
+  }
+  // Only delete triggers if the new ones are installed
+  for (var i = 0; i < allTriggers.length; ++i) {
+    ScriptApp.deleteTrigger(allTriggers[i]);
+  }
 
   var filesAddedToday = Utilities.jsonParse(
       UserProperties.getProperty(kFilesAddedToday));
@@ -230,11 +249,7 @@ function syncUserDrives(e) {
   UserProperties.setProperty(kLastSynced, user.lastSynced);
   UserProperties.setProperty(kFilesAddedToday, Utilities.jsonStringify(
       {'added' : added, 'date' : today.toJSON()}));
-  if (!someError && fullSynced) {
-    ScriptApp.newTrigger("syncUserDrives").timeBased().after(12 * kOneMinute).create();
-  } else {
-    ScriptApp.newTrigger("syncUserDrives").timeBased().after(20 * kOneMinute).create();
-  }
+  ScriptApp.newTrigger("syncUserDrives").timeBased().after(20 * kOneMinute).create();
 }
 
 function getSearchQuery(userData) {
